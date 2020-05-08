@@ -60,18 +60,7 @@ class MockWebServer {
 			return;
 		}
 
-		$script = __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'server' . DIRECTORY_SEPARATOR . 'server.php';
-
-		$stdout = tempnam(sys_get_temp_dir(), 'mockserv-stdout-');
-		$cmd    = "php -S {$this->host}:{$this->port} " . $script;
-
-		if( !putenv(self::TMP_ENV . '=' . $this->tmpDir) ) {
-			throw new Exceptions\RuntimeException('Unable to put environmental variable');
-		}
-		$fullCmd = sprintf('%s > %s 2>&1',
-			$cmd,
-			$stdout
-		);
+		$fullCmd = $this->makeStartCmd();
 
 		InternalServer::incrementRequestCounter($this->tmpDir, 0);
 
@@ -291,27 +280,43 @@ class MockWebServer {
 
 	/**
 	 * @param string $fullCmd
-	 * @return resource
+	 * @return resource|boolean
 	 */
 	private function startServer( $fullCmd ) {
-		if( !$this->isWindowsPlatform() ) {
-			// We need to prefix exec to get the correct process http://php.net/manual/ru/function.proc-get-status.php#93382
-			$fullCmd = 'exec ' . $fullCmd;
-		}
-
 		$pipes = [];
 		$env   = null;
 		$cwd   = null;
 
 		$process = proc_open($fullCmd, [], $pipes, $cwd, $env, [
-			'suppress_errors' => false,
+			'suppress_errors' => true,
 			'bypass_shell'    => true,
 		]);
 
-		if( is_resource($process) ) {
-			return $process;
-		}
+		return $process;
+	}
 
-		throw new Exceptions\ServerException("Error starting server");
+	private function makeStartCmd() {
+		if( !putenv(self::TMP_ENV . '=' . $this->tmpDir) ) {
+			throw new Exceptions\RuntimeException('Unable to put environmental variable');
+		}
+		$script = __DIR__ . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'server' . DIRECTORY_SEPARATOR . 'server.php';
+		$stdout = tempnam(sys_get_temp_dir(), 'mockserv-stdout-');
+
+		if( $this->isWindowsPlatform() ) {
+			$cmd = "php -S {$this->host}:{$this->port} \"" . $script . "\"";
+			$fullCmd = sprintf('%s > "%s" 2>&1',
+				$cmd,
+				$stdout
+			);
+			return $fullCmd;
+		}
+		// We need to prefix exec to get the correct process http://php.net/manual/ru/function.proc-get-status.php#93382
+		$cmd = "exec php -S {$this->host}:{$this->port} " . escapeshellarg($script);
+		$fullCmd = sprintf('%s > %s 2>&1',
+			escapeshellcmd($cmd),
+			escapeshellarg($stdout)
+		);
+
+		return $fullCmd;
 	}
 }
